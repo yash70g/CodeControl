@@ -1,8 +1,31 @@
-import 'bootstrap/dist/css/bootstrap.min.css';
+import "bootstrap/dist/css/bootstrap.min.css";
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 
+// ---- CodeMirror Imports ----
+import CodeMirror from "@uiw/react-codemirror";
+import { javascript } from "@codemirror/lang-javascript";
+import { cpp } from "@codemirror/lang-cpp";
+import { python } from "@codemirror/lang-python";
+import { java } from "@codemirror/lang-java";
+
 const API_BASE_URL = "http://localhost:5000/api";
+
+// helper to map languageId → highlight mode
+const getLanguageExtension = (id) => {
+  switch (id) {
+    case 63:
+      return javascript();
+    case 54:
+      return cpp();
+    case 71:
+      return python();
+    case 62:
+      return java();
+    default:
+      return javascript();
+  }
+};
 
 export default function CodeRunner() {
   const [code, setCode] = useState(`print("Hello")`);
@@ -12,7 +35,9 @@ export default function CodeRunner() {
   const [loading, setLoading] = useState(false);
   const [dbLoading, setDbLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState("");
+  const [fixing, setFixing] = useState(false);
 
+  // Load from DB
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -31,6 +56,7 @@ export default function CodeRunner() {
     fetchData();
   }, []);
 
+  // Auto-save
   useEffect(() => {
     if (dbLoading) return;
 
@@ -53,6 +79,7 @@ export default function CodeRunner() {
     return () => clearTimeout(timer);
   }, [code, languageId, testcases, dbLoading]);
 
+  // Run Code (Judge0)
   const runCode = async () => {
     setLoading(true);
     setResults([]);
@@ -94,6 +121,34 @@ export default function CodeRunner() {
     setLoading(false);
   };
 
+  // Auto-fix
+  const autoFix = async () => {
+    if (fixing) return;
+
+    setFixing(true);
+    setSaveStatus("Auto-fixing...");
+    try {
+      const res = await axios.post(
+        `${API_BASE_URL}/fix`,
+        { code, languageId, testcases },
+        { timeout: 120000 }
+      );
+
+      if (res.data && res.data.fixed_code) {
+        setCode(res.data.fixed_code);
+        setSaveStatus("Auto-fixed ✓");
+      } else {
+        setSaveStatus("Auto-fix failed");
+      }
+    } catch (err) {
+      console.error("Auto-fix error:", err);
+      setSaveStatus("Auto-fix failed");
+    } finally {
+      setFixing(false);
+      setTimeout(() => setSaveStatus(""), 3000);
+    }
+  };
+
   const addTestcase = () => setTestcases([...testcases, ""]);
   const updateTestcase = (i, v) => {
     const updated = [...testcases];
@@ -115,7 +170,6 @@ export default function CodeRunner() {
       </div>
     );
   }
-// console.log("API KEY:", process.env.REACT_APP_RAPID);
 
   return (
     <div style={{ minHeight: "100vh", background: "#0e141b", color: "#e6edf3" }}>
@@ -123,9 +177,7 @@ export default function CodeRunner() {
 
         {/* Header */}
         <div className="d-flex justify-content-between align-items-center mb-4">
-          <h1 className="fw-bold" style={{ color: "#1ba94c" }}>
-            Code Runner
-          </h1>
+          <h1 className="fw-bold" style={{ color: "#1ba94c" }}>Code Runner</h1>
           <div
             className={`fw-semibold ${
               saveStatus.includes("Saved")
@@ -143,6 +195,7 @@ export default function CodeRunner() {
 
           {/* Code + Language */}
           <div className="col-lg-8">
+
             {/* Language selector */}
             <div
               className="p-3 rounded mb-3"
@@ -169,7 +222,7 @@ export default function CodeRunner() {
               </select>
             </div>
 
-            {/* Code editor */}
+            {/* CodeMirror Editor */}
             <div
               className="p-3 rounded"
               style={{
@@ -178,18 +231,21 @@ export default function CodeRunner() {
               }}
             >
               <label className="fw-semibold mb-2">Source Code</label>
-              <textarea
+
+              <CodeMirror
                 value={code}
-                onChange={(e) => setCode(e.target.value)}
-                className="form-control"
-                rows={15}
+                height="400px"
+                theme="dark"
+                extensions={[getLanguageExtension(languageId)]}
+                onChange={(val) => setCode(val)}
                 style={{
                   background: "#0d1117",
                   color: "#e6edf3",
-                  borderColor: "#252b31",
-                  fontFamily: "monospace",
+                  border: "1px solid #252b31",
+                  borderRadius: "4px",
+                  fontSize: "14px",
                 }}
-              ></textarea>
+              />
             </div>
           </div>
 
@@ -257,6 +313,19 @@ export default function CodeRunner() {
             }}
           >
             {loading ? "Running..." : "▶ Run Code"}
+          </button>
+
+          <button
+            onClick={autoFix}
+            disabled={fixing}
+            className="btn px-4 py-2"
+            style={{
+              background: fixing ? "#0f3f27" : "#0e6b39",
+              color: "white",
+              fontWeight: "600",
+            }}
+          >
+            {fixing ? "Fixing..." : "Auto-fix"}
           </button>
 
           <button
